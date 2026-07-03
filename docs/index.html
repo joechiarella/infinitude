@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Infinitude: Local web control for Carrier Infinity &amp; Bryant Evolution</title>
+  <meta name="description" content="Infinitude is a self-hosted proxy and web service for Carrier Infinity Touch and Bryant Evolution thermostats. Web editors, an open REST API, and optional RS-485 bus access." />
+  <meta property="og:title" content="Infinitude: Local web control for Carrier Infinity" />
+  <meta property="og:description" content="A self-hosted web service for Carrier Infinity Touch and Bryant Evolution thermostats. Web editors, REST API, optional RS-485, and Home Assistant via MQTT." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12C5 6 11 6 12 12C13 18 19 18 19 12C19 6 13 6 12 12C11 18 5 18 5 12Z' fill='none' stroke='%230e7c8a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <style>
+    /* ---------- Reset & base ---------- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --ink: #0b1220;
+      --ink-soft: #475569;
+      --ink-faint: #64748b;
+      --bg: #ffffff;
+      --bg-soft: #f5f8fc;
+      --bg-soft-2: #eef3f9;
+      --line: #e4eaf2;
+      --line-soft: #eef2f7;
+
+      --cool: #0e7c8a;
+      --cool-600: #0b6975;
+      --cool-50: #e6f6f8;
+      --warm: #e8814a;
+      --warm-soft: #fbeee3;
+
+      --rose: #b4453a;
+      --rose-soft: #fbeceb;
+
+      --dark: #0a1018;
+      --dark-2: #0f1726;
+
+      --radius: 16px;
+      --radius-sm: 10px;
+      --maxw: 1140px;
+      --shadow: 0 1px 2px rgba(11,18,32,.04), 0 8px 30px rgba(11,18,32,.06);
+      --shadow-lg: 0 20px 60px rgba(11,18,32,.12);
+      font-synthesis-weight: none;
+    }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      overflow-x: hidden;
+    }
+    a { color: var(--cool); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    img { max-width: 100%; display: block; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    /* ---------- Layout ---------- */
+    .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+    section { position: relative; }
+    .section { padding: 96px 0; }
+    .section.tight { padding: 72px 0; }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: .8rem; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--cool);
+      background: var(--cool-50);
+      padding: 6px 14px; border-radius: 999px;
+      border: 1px solid #cdeaee;
+    }
+    .eyebrow.warm { color: var(--warm); background: var(--warm-soft); border-color: #f3dcc6; }
+
+    h1, h2, h3 { line-height: 1.12; letter-spacing: -.02em; font-weight: 800; }
+    .section h2 {
+      font-size: clamp(1.75rem, 3.4vw, 2.6rem);
+      margin-bottom: 16px;
+    }
+    .lead { font-size: 1.12rem; color: var(--ink-soft); max-width: 60ch; }
+    .section-head { max-width: 640px; margin-bottom: 56px; }
+    .section-head.center { margin-left: auto; margin-right: auto; text-align: center; }
+    .section-head .lead { margin-top: 14px; }
+
+    /* ---------- Buttons ---------- */
+    .btn {
+      display: inline-flex; align-items: center; gap: 9px;
+      font-weight: 600; font-size: 1rem;
+      padding: 13px 22px; border-radius: 11px;
+      border: 1px solid transparent;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+      cursor: pointer; white-space: nowrap;
+    }
+    .btn svg { width: 18px; height: 18px; }
+    .btn-primary { background: var(--cool); color: #fff; box-shadow: 0 8px 20px rgba(14,124,138,.28); }
+    .btn-primary:hover { background: var(--cool-600); text-decoration: none; transform: translateY(-2px); }
+    .btn-ghost { background: rgba(255,255,255,.06); color: #fff; border-color: rgba(255,255,255,.22); backdrop-filter: blur(4px); }
+    .btn-ghost:hover { background: rgba(255,255,255,.12); text-decoration: none; transform: translateY(-2px); }
+    .btn-outline { background: #fff; color: var(--ink); border-color: var(--line); }
+    .btn-outline:hover { border-color: var(--cool); color: var(--cool); text-decoration: none; transform: translateY(-2px); }
+
+    /* ---------- Nav ---------- */
+    header.nav {
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: saturate(180%) blur(12px);
+      background: rgba(10,16,24,.72);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 66px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: #fff; font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; }
+    .brand:hover { text-decoration: none; }
+    .brand .mark {
+      width: 30px; height: 30px; border-radius: 9px;
+      background: linear-gradient(135deg, var(--cool) 0%, #14a3b8 55%, var(--warm) 130%);
+      display: grid; place-items: center; color: #fff;
+      box-shadow: 0 4px 12px rgba(14,124,138,.4);
+    }
+    .brand .mark svg { width: 17px; height: 17px; }
+    .brand .tag { color: #94a3b8; font-weight: 600; font-size: .78rem; letter-spacing: .02em; }
+    .nav-links { display: flex; align-items: center; gap: 30px; }
+    .nav-links a { color: #cbd5e1; font-size: .95rem; font-weight: 500; }
+    .nav-links a:hover { color: #fff; text-decoration: none; }
+    .nav-cta { display: inline-flex; align-items: center; gap: 8px; color: #0b1220; background: #fff; font-weight: 600; font-size: .92rem; padding: 9px 16px; border-radius: 9px; }
+    .nav-cta:hover { text-decoration: none; transform: translateY(-1px); }
+    .nav-cta svg { width: 16px; height: 16px; }
+    .nav-toggle { display: none; background: none; border: 0; cursor: pointer; color: #e2e8f0; padding: 6px; }
+    .nav-toggle svg { width: 26px; height: 26px; }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      position: relative; overflow: hidden;
+      background: radial-gradient(120% 90% at 85% 8%, #15324a 0%, transparent 55%),
+                  radial-gradient(90% 70% at 12% 0%, #3a2410 0%, transparent 48%),
+                  linear-gradient(180deg, var(--dark) 0%, var(--dark-2) 100%);
+      color: #fff;
+      padding: 90px 0 110px;
+    }
+    .hero::before {
+      content: ""; position: absolute; inset: 0;
+      background-image: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
+      background-size: 26px 26px;
+      mask-image: radial-gradient(80% 60% at 50% 30%, #000 0%, transparent 75%);
+      pointer-events: none;
+    }
+    .hero-glow {
+      position: absolute; border-radius: 50%; filter: blur(70px); opacity: .5; pointer-events: none;
+    }
+    .hero-glow.cool { width: 420px; height: 420px; right: -60px; top: -40px; background: #14a3b8; }
+    .hero-glow.warm { width: 380px; height: 380px; left: -80px; bottom: -80px; background: #e8814a; opacity: .35; }
+    .hero-inner { position: relative; z-index: 2; max-width: 760px; }
+    .hero h1 { font-size: clamp(2.4rem, 6vw, 4.1rem); font-weight: 800; letter-spacing: -.035em; }
+    .hero h1 .grad {
+      background: linear-gradient(100deg, #2dd4d4 0%, #67e8f3 40%, #fcd9b6 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero-sub { font-size: clamp(1.08rem, 1.7vw, 1.28rem); color: #b9c6d6; margin-top: 22px; max-width: 58ch; line-height: 1.6; }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 34px; }
+
+    .hero-strip {
+      position: relative; z-index: 2; margin-top: 64px;
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+      background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1);
+      border-radius: var(--radius); overflow: hidden;
+    }
+    .hero-strip .cell { background: rgba(10,16,24,.6); padding: 22px 20px; backdrop-filter: blur(4px); }
+    .hero-strip .num { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; }
+    .hero-strip .lbl { font-size: .82rem; color: #94a3b8; margin-top: 4px; }
+    .hero-strip .num .grad { background: linear-gradient(100deg,#2dd4d4,#fcd9b6); -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+    /* ---------- Feature grid ---------- */
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+    .feature {
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 30px 26px; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+    .feature:hover { transform: translateY(-4px); box-shadow: var(--shadow); border-color: #cdeaee; }
+    .feature .fic {
+      width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+      background: var(--cool-50); color: var(--cool); margin-bottom: 18px;
+    }
+    .feature .fic.warm { background: var(--warm-soft); color: var(--warm); }
+    .feature .fic svg { width: 24px; height: 24px; }
+    .feature h3 { font-size: 1.18rem; margin-bottom: 8px; }
+    .feature p { color: var(--ink-soft); font-size: .98rem; }
+
+    /* ---------- How-it-works flow ---------- */
+    .bg-soft-band { background: var(--bg-soft); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+    .flow { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; align-items: stretch; }
+    .flow .node {
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 26px 22px; position: relative; text-align: center;
+    }
+    .flow .node.core { border-color: #cdeaee; box-shadow: var(--shadow); background: linear-gradient(180deg, var(--cool-50) 0%, #fff 70%); }
+    .flow .nic { width: 44px; height: 44px; border-radius: 12px; background: var(--cool-50); color: var(--cool); display: grid; place-items: center; margin: 0 auto 14px; }
+    .flow .node.core .nic { background: var(--cool); color: #fff; }
+    .flow .nic svg { width: 23px; height: 23px; }
+    .flow .node h3 { font-size: 1.08rem; margin-bottom: 6px; }
+    .flow .node p { font-size: .92rem; color: var(--ink-soft); }
+    .flow .arr { display: grid; place-items: center; color: var(--ink-faint); }
+    .flow .arr svg { width: 26px; height: 26px; }
+    .flow-wrap { display: contents; }
+    .bus-note { margin-top: 18px; display:flex; gap: 12px; align-items: flex-start; background: var(--warm-soft); border: 1px solid #f3dcc6; border-radius: var(--radius-sm); padding: 16px 18px; font-size: .94rem; color: #7c4a22; }
+    .bus-note svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--warm); margin-top: 2px; }
+    @media (min-width: 921px) {
+      .flow { grid-template-columns: 1fr auto 1fr auto 1fr; gap: 14px; }
+    }
+
+    /* ---------- Venn ---------- */
+    .venn-fig { display: flex; justify-content: center; margin: 8px 0 8px; }
+    .venn-fig svg { width: 100%; max-width: 720px; height: auto; }
+    .venn-legend { display: flex; flex-wrap: wrap; gap: 12px 26px; justify-content: center; margin-top: 8px; }
+    .venn-legend .lg { display:inline-flex; align-items:center; gap:9px; font-size:.9rem; font-weight:600; color: var(--ink-soft); }
+    .venn-legend .sw { width: 14px; height: 14px; border-radius: 50%; }
+    .venn-legend .sw.cool { background: #0e7c8a; }
+    .venn-legend .sw.warm { background: #e8814a; }
+    .venn-legend .sw.both { background: linear-gradient(90deg,#0e7c8a 50%, #e8814a 50%); }
+    .venn-cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-top: 40px; }
+    .venn-cards .vc { background: #fff; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 22px; }
+    .venn-cards .vc h3 { display:flex; align-items:center; gap:9px; font-size:1.02rem; margin-bottom:12px; }
+    .venn-cards .vc h3 .dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+    .venn-cards .vc.cool h3 .dot { background:#0e7c8a; }
+    .venn-cards .vc.warm h3 .dot { background:#e8814a; }
+    .venn-cards .vc.both h3 .dot { background: linear-gradient(90deg,#0e7c8a 50%, #e8814a 50%); }
+    .venn-cards .vc ul { list-style:none; display:grid; gap:9px; }
+    .venn-cards .vc li { display:flex; gap:9px; align-items:flex-start; font-size:.94rem; color: var(--ink-soft); }
+    .venn-cards .vc li svg { width:17px; height:17px; flex-shrink:0; margin-top:3px; color: var(--cool); }
+    .venn-cards .vc.warm li svg { color: var(--warm); }
+
+    /* ---------- Entities ---------- */
+    .entity-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .entity {
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 22px 22px; display: flex; gap: 15px; align-items: flex-start;
+    }
+    .entity .eic { width: 38px; height: 38px; border-radius: 9px; background: var(--cool-50); color: var(--cool); display: grid; place-items: center; flex-shrink: 0; }
+    .entity .eic svg { width: 20px; height: 20px; }
+    .entity h3 { font-size: 1.02rem; margin-bottom: 3px; letter-spacing: -.01em; }
+    .entity p { font-size: .9rem; color: var(--ink-soft); line-height: 1.5; }
+
+    /* ---------- Screenshot gallery ---------- */
+    .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 52px; }
+    .shots.single { grid-template-columns: 1fr; max-width: 760px; margin-left: auto; margin-right: auto; }
+    .shot { display: block; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #fff; box-shadow: var(--shadow); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+    .shot:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: #cdeaee; text-decoration: none; }
+    .shot img { width: 100%; height: auto; display: block; background: var(--bg-soft); }
+    .shot .cap { padding: 13px 18px; font-size: .9rem; color: var(--ink-soft); border-top: 1px solid var(--line); background: #fff; display: flex; align-items: center; gap: 8px; }
+    .shot .cap svg { width: 15px; height: 15px; color: var(--cool); flex-shrink: 0; }
+
+    /* ---------- Q&A reassurance ---------- */
+    .qa-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; }
+    .qa {
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 28px 26px; display: flex; gap: 16px; align-items: flex-start;
+      box-shadow: var(--shadow);
+    }
+    .qa .qic { width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0; display: grid; place-items: center; background: var(--cool-50); color: var(--cool); }
+    .qa .qic svg { width: 22px; height: 22px; }
+    .qa .q { font-weight: 700; font-size: 1.06rem; letter-spacing: -.01em; margin-bottom: 5px; color: var(--ink); }
+    .qa .a { color: var(--ink-soft); font-size: .98rem; }
+
+    /* ---------- Steps ---------- */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; counter-reset: step; }
+    .step { position: relative; padding: 34px 28px; background: var(--bg-soft); border-radius: var(--radius); border: 1px solid var(--line-soft); }
+    .step .num {
+      counter-increment: step;
+      width: 40px; height: 40px; border-radius: 11px;
+      background: var(--ink); color: #fff; display: grid; place-items: center;
+      font-weight: 800; font-size: 1.1rem; margin-bottom: 18px;
+    }
+    .step .num::before { content: counter(step); }
+    .step h3 { font-size: 1.15rem; margin-bottom: 8px; }
+    .step p { color: var(--ink-soft); font-size: .98rem; }
+    .step .code {
+      margin-top: 14px; font-family: 'JetBrains Mono', monospace; font-size: .8rem;
+      background: #0b1220; color: #7dd3d8; padding: 10px 12px; border-radius: 8px; display: block;
+      overflow-x: auto; white-space: pre; line-height: 1.5;
+    }
+
+    /* ---------- Straight talk (risk) ---------- */
+    .realtalk {
+      position: relative; overflow: hidden;
+      background: linear-gradient(135deg, #1a1206 0%, #0f1726 60%, #0a1018 100%);
+      border-radius: 24px; padding: 56px 48px; color: #fff;
+      border: 1px solid rgba(232,129,74,.22);
+    }
+    .realtalk::before {
+      content:""; position:absolute; left:-70px; top:-70px; width:300px; height:300px; border-radius:50%;
+      background: radial-gradient(circle, rgba(232,129,74,.28), transparent 70%);
+    }
+    .realtalk > * { position: relative; z-index: 1; }
+    .realtalk .rt-tag {
+      display:inline-flex; align-items:center; gap:8px; font-size:.8rem; font-weight:600; letter-spacing:.08em;
+      text-transform:uppercase; color:#fcd9b6; background:rgba(232,129,74,.14); border:1px solid rgba(232,129,74,.32);
+      padding:6px 14px; border-radius:999px; margin-bottom:22px;
+    }
+    .realtalk h2 { font-size: clamp(1.6rem,3vw,2.2rem); }
+    .realtalk p { color:#c2cedd; max-width:64ch; margin-top:14px; }
+    .risk-table { width:100%; margin-top: 26px; border-collapse: collapse; }
+    .risk-table th, .risk-table td { text-align: left; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,.08); font-size: .96rem; }
+    .risk-table th { color:#94a3b8; font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
+    .risk-table td { color:#c2cedd; }
+    .pill { display:inline-block; font-size:.74rem; font-weight:700; padding:4px 10px; border-radius:999px; letter-spacing:.03em; text-transform:uppercase; }
+    .pill.lo { background: rgba(110,231,183,.16); color:#6ee7b7; }
+    .pill.med { background: rgba(251,191,36,.18); color:#fcd34d; }
+    .pill.hi { background: rgba(248,113,113,.18); color:#fca5a5; }
+    .realtalk .rt-punch { margin-top:28px; font-size:1.05rem; color:#fff; line-height:1.55; }
+    .realtalk a { color:#fcd9b6; text-decoration:underline; }
+
+    /* ---------- CTA band ---------- */
+    .cta-band {
+      position: relative; overflow: hidden;
+      background: linear-gradient(135deg, var(--dark) 0%, #0d2030 100%);
+      border-radius: 24px; padding: 56px 48px; color: #fff;
+      display: flex; align-items: center; justify-content: space-between; gap: 30px; flex-wrap: wrap;
+      box-shadow: var(--shadow-lg);
+    }
+    .cta-band::after {
+      content:""; position:absolute; right:-60px; top:-60px; width:300px; height:300px; border-radius:50%;
+      background: radial-gradient(circle, rgba(20,163,184,.45), transparent 70%);
+    }
+    .cta-band h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); position: relative; z-index: 1; }
+    .cta-band p { color: #a9b9cc; margin-top: 8px; position: relative; z-index: 1; max-width: 50ch; }
+    .cta-band .btns { position: relative; z-index: 1; display: flex; gap: 12px; flex-wrap: wrap; }
+
+    /* ---------- Footer ---------- */
+    footer.site { background: var(--dark); color: #94a3b8; padding: 64px 0 36px; }
+    footer.site .ftop { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 36px; padding-bottom: 40px; border-bottom: 1px solid rgba(255,255,255,.08); }
+    footer.site .brand { color: #fff; }
+    footer.site .ftag { margin-top: 16px; font-size: .92rem; max-width: 34ch; color: #8896a9; }
+    footer.site h4 { color: #cbd5e1; font-size: .82rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 16px; }
+    footer.site ul { list-style: none; display: grid; gap: 11px; }
+    footer.site ul a { color: #94a3b8; font-size: .92rem; }
+    footer.site ul a:hover { color: #fff; text-decoration: none; }
+    .fbot { margin-top: 28px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: .85rem; color: #64748b; }
+
+    /* ---------- Reveal animation ---------- */
+    .js .reveal { opacity: 0; transform: translateY(22px); transition: opacity .6s ease, transform .6s ease; }
+    .js .reveal.in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .js .reveal { opacity: 1 !important; transform: none !important; transition: none; }
+      * { scroll-behavior: auto !important; }
+    }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 920px) {
+      .features-grid, .entity-grid, .steps, .venn-cards, .shots { grid-template-columns: repeat(2, 1fr); }
+      .hero-strip { grid-template-columns: repeat(2, 1fr); }
+      footer.site .ftop { grid-template-columns: 1fr 1fr; }
+      .flow { grid-template-columns: 1fr; gap: 10px; }
+      .flow .arr { transform: rotate(90deg); padding: 2px 0; }
+    }
+    @media (max-width: 640px) {
+      .section { padding: 64px 0; }
+      .nav-links { display: none; position: absolute; top: 66px; left: 0; right: 0; flex-direction: column; align-items: flex-start; gap: 0; background: var(--dark-2); border-bottom: 1px solid rgba(255,255,255,.1); padding: 8px 24px 18px; }
+      .nav-links.open { display: flex; }
+      .nav-links a { width: 100%; padding: 12px 0; border-top: 1px solid rgba(255,255,255,.07); }
+      .nav-cta { display: none; }
+      .nav-toggle { display: inline-flex; }
+      .features-grid, .entity-grid, .steps, .qa-grid, .venn-cards, .shots { grid-template-columns: 1fr; }
+      .cta-band, .realtalk { padding: 40px 26px; }
+      footer.site .ftop { grid-template-columns: 1fr; gap: 28px; }
+      .hero { padding: 60px 0 80px; }
+    }
+  </style>
+</head>
+<body>
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a href="#top" class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12C5 6 11 6 12 12C13 18 19 18 19 12C19 6 13 6 12 12C11 18 5 18 5 12Z"/></svg>
+      </span>
+      <span>Infinitude <span class="tag">/ self-hosted</span></span>
+    </a>
+    <nav class="nav-links" id="navlinks">
+      <a href="#features">What it does</a>
+      <a href="#how">How it works</a>
+      <a href="#vs">Infinitude vs InfinitESP</a>
+      <a href="#homeassistant">Home Assistant</a>
+      <a href="#start">Get started</a>
+    </nav>
+    <a class="nav-cta" href="https://github.com/nebulous/infinitude" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.7.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+      GitHub
+    </a>
+    <button class="nav-toggle" id="navtoggle" aria-label="Toggle menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero" id="top">
+  <span class="hero-glow cool"></span>
+  <span class="hero-glow warm"></span>
+  <div class="wrap hero-inner">
+    <h1>Local web control<br>for your <span class="grad">Infinity thermostat.</span></h1>
+    <p class="hero-sub">
+      Infinitude is a self-hosted proxy and web service for Carrier Infinity Touch and Bryant Evolution communicating thermostats. It answers the thermostat locally and adds a web UI, 7-day schedules, comfort profiles, vacation planning, and an open REST API, with optional access to the RS-485 bus. A companion project to <a href="https://github.com/nebulous/infinitesp" style="color:#7dd3d8">InfinitESP</a>.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="#how">How it works
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/nebulous/infinitude" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.7.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <h2>A web service for the thermostat.</h2>
+      <p class="lead">Infinitude runs on the local network. It gives the thermostat a browser UI and a REST API, and with an RS-485 adapter it can also read the equipment bus directly.</p>
+    </div>
+
+    <div class="features-grid reveal">
+      <div class="feature">
+        <div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg></div>
+        <h3>Web control</h3>
+        <p>Setpoints, schedules, comfort profiles, and mode for each zone, from a browser.</p>
+      </div>
+      <div class="feature">
+        <div class="fic warm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 12V8a4 4 0 0 1 8 0v4M9 19v2M15 19v2"/></svg></div>
+        <h3>RS-485 bus access</h3>
+        <p>Read the ABCD bus for values from the thermostat, air handler, and heat pump.</p>
+      </div>
+      <div class="feature">
+        <div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 1 18 0 9 9 0 0 1-18 0z"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>Home Assistant</h3>
+        <p>Each zone becomes a climate entity through MQTT Discovery.</p>
+      </div>
+    </div>
+
+    <div class="shots reveal">
+      <a class="shot" href="https://github.com/user-attachments/assets/e638064a-26aa-43e5-9178-63973b3ab030" target="_blank" rel="noopener">
+        <img src="https://github.com/user-attachments/assets/e638064a-26aa-43e5-9178-63973b3ab030" alt="Infinitude web interface" loading="lazy">
+        <span class="cap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M21 3l-9 9M9 21H3v-6M3 21l9-9"/></svg> Web interface</span>
+      </a>
+      <a class="shot" href="https://github.com/user-attachments/assets/0c19b9fd-d1b3-41fd-a140-fce1b85d35dc" target="_blank" rel="noopener">
+        <img src="https://github.com/user-attachments/assets/0c19b9fd-d1b3-41fd-a140-fce1b85d35dc" alt="Infinitude schedule editor" loading="lazy">
+        <span class="cap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M21 3l-9 9M9 21H3v-6M3 21l9-9"/></svg> Schedule editor</span>
+      </a>
+      <a class="shot" href="https://github.com/user-attachments/assets/b6634bda-af9d-4e2f-8fd2-036c31a2cbe7" target="_blank" rel="noopener">
+        <img src="https://github.com/user-attachments/assets/b6634bda-af9d-4e2f-8fd2-036c31a2cbe7" alt="Infinitude serial bus monitor" loading="lazy">
+        <span class="cap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M21 3l-9 9M9 21H3v-6M3 21l9-9"/></svg> Serial bus monitor</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="section bg-soft-band" id="how">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <h2>How Infinitude fits in.</h2>
+      <p class="lead">Infinitude sits between the thermostat and the cloud service as a self-hosted proxy. It answers the thermostat's requests locally and contacts the cloud service only as a rate-limited fallback.</p>
+    </div>
+
+    <div class="flow reveal">
+      <div class="node">
+        <div class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Thermostat</h3>
+        <p>Configured to use Infinitude as its proxy, via the proxy/DNS setting in its wireless setup.</p>
+      </div>
+      <div class="arr" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+      <div class="node core">
+        <div class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg></div>
+        <h3>Infinitude</h3>
+        <p>Self-hosted proxy and web service: web UI, schedules, REST API, MQTT Discovery. Answers the thermostat locally and falls back to the cloud service behind a rate limit.</p>
+      </div>
+      <div class="arr" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+      <div class="node">
+        <div class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z"/></svg></div>
+        <h3>Carrier cloud</h3>
+        <p>Infinitude contacts it only as a rate-limited fallback.</p>
+      </div>
+    </div>
+
+    <div class="bus-note reveal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <span><strong>Optional bus path:</strong> with a USB/serial RS-485 adapter or a networked serial bridge, Infinitude can also read the ABCD bus directly, and experimentally write to it via SAM or Zone Controller emulation.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INFINITUDE vs INFINITESP (VENN) ============ -->
+<section class="section" id="vs">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <h2>Infinitude or InfinitESP?</h2>
+      <p class="lead">They are companion projects that share a protocol. Pick the one that fits, or run both. Infinitude is the software path; InfinitESP is ESPHome firmware that runs on a compatible device wired to the bus.</p>
+    </div>
+
+    <figure class="venn-fig reveal">
+      <svg viewBox="0 0 780 350" role="img" aria-labelledby="venntitle venndesc">
+        <title id="venntitle">Infinitude and InfinitESP capabilities overlap</title>
+        <desc id="venndesc">A Venn diagram. Left circle Infinitude: self-hosted web service, schedule and profile editors, REST API. Overlap Shared: RS-485 emulation, Home Assistant integration. Right circle InfinitESP: ESPHome-based firmware, physical sensors and actuators.</desc>
+        <circle cx="305" cy="170" r="165" fill="#0e7c8a" fill-opacity="0.14" stroke="#0e7c8a" stroke-width="2"/>
+        <circle cx="495" cy="170" r="165" fill="#e8814a" fill-opacity="0.14" stroke="#e8814a" stroke-width="2"/>
+        <g font-family="Inter, system-ui, sans-serif" text-anchor="middle">
+          <!-- Infinitude (left) -->
+          <text x="232" y="92" font-size="19" font-weight="800" fill="#0b6975">Infinitude</text>
+          <text x="232" y="128" font-size="13" fill="#334155">Self-hosted</text>
+          <text x="232" y="148" font-size="13" fill="#334155">web service</text>
+          <text x="232" y="182" font-size="13" fill="#334155">Schedule &amp; profile</text>
+          <text x="232" y="202" font-size="13" fill="#334155">editors</text>
+          <text x="232" y="236" font-size="13" fill="#334155">REST API</text>
+          <!-- Shared (center) -->
+          <text x="400" y="120" font-size="16" font-weight="800" fill="#5b4636">Shared</text>
+          <text x="400" y="160" font-size="13" fill="#334155">RS-485 emulation</text>
+          <text x="400" y="184" font-size="13" fill="#334155">Home Assistant</text>
+          <!-- InfinitESP (right) -->
+          <text x="568" y="92" font-size="19" font-weight="800" fill="#a85a24">InfinitESP</text>
+          <text x="568" y="128" font-size="13" fill="#334155">ESPHome-based</text>
+          <text x="568" y="148" font-size="13" fill="#334155">firmware</text>
+          <text x="568" y="182" font-size="13" fill="#334155">Physical sensors</text>
+          <text x="568" y="202" font-size="13" fill="#334155">&amp; actuators</text>
+        </g>
+      </svg>
+    </figure>
+
+    <div class="venn-legend reveal">
+      <span class="lg"><span class="sw cool"></span> Infinitude: software / container</span>
+      <span class="lg"><span class="sw both"></span> Shared capabilities</span>
+      <span class="lg"><span class="sw warm"></span> InfinitESP: ESPHome firmware</span>
+    </div>
+
+    <div class="venn-cards reveal">
+      <div class="vc cool">
+        <h3><span class="dot"></span> Infinitude only</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Container / software implementation</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Web editors for schedule, profile, vacation</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Web REST API</li>
+        </ul>
+      </div>
+      <div class="vc both">
+        <h3><span class="dot"></span> Shared</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> RS-485 emulation</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Home Assistant integration</li>
+        </ul>
+      </div>
+      <div class="vc warm">
+        <h3><span class="dot"></span> InfinitESP only</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> ESPHome-based firmware</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Runs on compatible devices</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Physical sensors &amp; actuators</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOME ASSISTANT ============ -->
+<section class="section bg-soft-band" id="homeassistant">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <h2>Home Assistant, with no integration to install.</h2>
+      <p class="lead">With an MQTT broker configured, Infinitude advertises itself through MQTT Discovery. Each enabled zone becomes a climate entity, alongside system sensors. Commands flow back over MQTT.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STRAIGHT TALK / SAFETY ============ -->
+<section class="section" id="safety">
+  <div class="wrap">
+    <div class="realtalk reveal">
+      <span class="rt-tag">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        Experimental software on expensive equipment
+      </span>
+      <h2>This controls real HVAC hardware.</h2>
+      <p>Infinitude communicates with and may control HVAC equipment. It is experimental and not a replacement for OEM hardware. Improper use could result in property damage, equipment damage, or hazardous conditions including frozen pipes, overheating, or loss of heating or cooling. Use is at your own risk. See the project's <a href="https://github.com/nebulous/infinitude/blob/master/NOTICE" target="_blank" rel="noopener">NOTICE</a>.</p>
+
+      <table class="risk-table">
+        <thead><tr><th>Feature</th><th>If Infinitude stops</th></tr></thead>
+        <tbody>
+          <tr><td>Normal proxy / web control</td><td><span class="pill lo">Low</span> &nbsp; thermostat resumes its normal cloud path</td></tr>
+          <tr><td>SAM emulation (bus writes)</td><td><span class="pill med">Medium</span> &nbsp; thermostat continues with a communication error</td></tr>
+          <tr><td>Zone Controller emulation</td><td><span class="pill hi">High</span> &nbsp; conditioning may stop. Do not rely on it for heating and cooling.</td></tr>
+        </tbody>
+      </table>
+      <p class="rt-punch">Firmware compatibility matters. Infinitude is not compatible with all thermostat firmware versions. Check the <a href="https://github.com/nebulous/infinitude/wiki/Infinitude-Compatibility-Matrix" target="_blank" rel="noopener">Compatibility Matrix</a> before you start, and add your combination if it works.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GET STARTED ============ -->
+<section class="section bg-soft-band" id="start">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <h2>Get started.</h2>
+      <p class="lead">The easiest path is the published multi-architecture Docker image. Point your thermostat's proxy at Infinitude and you're set.</p>
+    </div>
+
+    <div class="steps reveal">
+      <div class="step">
+        <div class="num"></div>
+        <h3>Run the container</h3>
+        <p>Pull the published image and expose port 3000. Persist the <span class="mono">state/</span> directory.</p>
+        <code class="code">docker run --rm \
+  -v $PWD/state:/infinitude/state \
+  -p 3000:3000 \
+  nebulous/infinitude</code>
+      </div>
+      <div class="step">
+        <div class="num"></div>
+        <h3>Redirect the thermostat</h3>
+        <p>In the thermostat's advanced wireless settings, set the proxy server/port to your Infinitude host. Traffic is unencrypted. Use a trusted network only.</p>
+      </div>
+      <div class="step">
+        <div class="num"></div>
+        <h3>Add the options you want</h3>
+        <p>Configure via environment variables or <span class="mono">infinitude.json</span>: RS-485 serial, MQTT broker for Home Assistant, scan rate, and more. See the README.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="section" id="faq">
+  <div class="wrap">
+    <div class="section-head center reveal">
+      <h2>Questions.</h2>
+    </div>
+    <div class="qa-grid reveal">
+      <div class="qa">
+        <div class="qic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z"/></svg></div>
+        <div><div class="q">Does it need an internet connection?</div><div class="a">No. Infinitude answers the thermostat locally and contacts the cloud service only as a rate-limited fallback.</div></div>
+      </div>
+      <div class="qa">
+        <div class="qic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg></div>
+        <div><div class="q">Will it work with my thermostat?</div><div class="a">It depends on the firmware version. Not all combinations are supported. Check the <a href="https://github.com/nebulous/infinitude/wiki/Infinitude-Compatibility-Matrix" target="_blank" rel="noopener">Compatibility Matrix</a> first.</div></div>
+      </div>
+      <div class="qa">
+        <div class="qic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z"/></svg></div>
+        <div><div class="q">How is this different from InfinitESP?</div><div class="a">Infinitude is software that acts as a proxy for the thermostat and adds a web UI and REST API. InfinitESP is ESPHome firmware that runs on a device connected to the RS-485 bus. See <a href="#vs">the comparison above</a>; either or both work.</div></div>
+      </div>
+      <div class="qa">
+        <div class="qic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+        <div><div class="q">Is it safe to leave running?</div><div class="a">Normal web/proxy control is low risk. The experimental emulation features (writing to the bus) carry more, Zone Controller emulation especially. Read the <a href="#safety">safety section</a> before enabling those.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="section">
+  <div class="wrap">
+    <div class="cta-band reveal">
+      <div>
+        <h2>Bring the cloud a little closer.</h2>
+        <p>Self-hosted, open source, and local-first. Details, configuration, and the protocol wiki are in the repository.</p>
+      </div>
+      <div class="btns">
+        <a class="btn btn-primary" href="https://github.com/nebulous/infinitude" target="_blank" rel="noopener">README &amp; code
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer class="site">
+  <div class="wrap">
+    <div class="ftop">
+      <div>
+        <a href="#top" class="brand">
+          <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12C5 6 11 6 12 12C13 18 19 18 19 12C19 6 13 6 12 12C11 18 5 18 5 12Z"/></svg></span>
+          <span>Infinitude</span>
+        </a>
+        <p class="ftag">A self-hosted web service for local control of Carrier Infinity Touch and Bryant Evolution thermostats. Open source, built by and for the community.</p>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="https://github.com/nebulous/infinitude" target="_blank" rel="noopener">GitHub repository</a></li>
+          <li><a href="https://hub.docker.com/r/nebulous/infinitude" target="_blank" rel="noopener">Docker Hub image</a></li>
+          <li><a href="https://github.com/nebulous/infinitude/wiki" target="_blank" rel="noopener">Protocol wiki</a></li>
+          <li><a href="https://github.com/nebulous/infinitude/wiki/Infinitude-Compatibility-Matrix" target="_blank" rel="noopener">Compatibility Matrix</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Related</h4>
+        <ul>
+          <li><a href="https://nebulous.github.io/infinitesp/" target="_blank" rel="noopener">InfinitESP (firmware)</a></li>
+          <li><a href="https://github.com/MizterB/homeassistant-infinitude-beyond" target="_blank" rel="noopener">Home Assistant integration</a></li>
+          <li><a href="https://github.com/acd/infinitive" target="_blank" rel="noopener">Infinitive (non-touch)</a></li>
+          <li><a href="https://github.com/dahlb/ha_carrier" target="_blank" rel="noopener">ha_carrier (cloud API)</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Get started</h4>
+        <ul>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#start">Install</a></li>
+          <li><a href="#vs">Infinitude vs InfinitESP</a></li>
+          <li><a href="#safety">Safety</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="fbot">
+      <span>Infinitude is open source. Experimental software; use at your own risk.</span>
+      <span>Carrier and Bryant are trademarks of their owners; this project is unaffiliated.</span>
+    </div>
+  </div>
+</footer>
+
+<script>document.documentElement.classList.add('js');</script>
+<script>
+  var toggle = document.getElementById('navtoggle');
+  var links = document.getElementById('navlinks');
+  toggle.addEventListener('click', function () { links.classList.toggle('open'); });
+  links.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', function () { links.classList.remove('open'); });
+  });
+
+  var reveals = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    reveals.forEach(function (el) { io.observe(el); });
+  } else {
+    reveals.forEach(function (el) { el.classList.add('in'); });
+  }
+</script>
+</body>
+</html>
