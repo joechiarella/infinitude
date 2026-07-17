@@ -12,7 +12,12 @@ my %SERIAL_REGISTERS = (
             { key => 'outdoor_temperature', name => 'Outdoor Temperature', field => 'outdoor_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
             { key => 'coil_temperature', name => 'Coil Temperature', field => 'coil_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
             { key => 'suction_temperature', name => 'Suction Temperature', field => 'suction_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
-            { key => 'subcooling', name => 'Subcooling', field => 'subcooling_degf_int', scale => 1 / 16, unit => '°F' },
+            # ΔT, not an absolute temperature: no device_class, and a plain 'F'
+            # unit rather than '°F'. The '°F' string routes the Prometheus
+            # exporter down its temperature-conversion path, which requires a
+            # device_class and silently emits no metric without one; a plain
+            # unit falls through to the generic serializer and exports cleanly.
+            { key => 'subcooling', name => 'Subcooling', field => 'subcooling_degf_int', scale => 1 / 16, unit => 'F' },
             { key => 'discharge_temperature', name => 'Discharge Temperature', field => 'discharge_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
         ],
         '0303' => [
@@ -33,10 +38,12 @@ my %SERIAL_REGISTERS = (
             { key => 'compressor_stage', name => 'Compressor Stage', field => 'stage' },
         ],
         '061F' => [
-            { key => 'superheat_target', name => 'Superheat Target', field => 'superheat_target', unit => '°F' },
-            { key => 'superheat_actual', name => 'Superheat Actual', field => 'superheat_actual', unit => '°F' },
-            { key => 'subcooling_target', name => 'Subcooling Target', field => 'subcooling_target', unit => '°F' },
-            { key => 'subcooling_actual', name => 'Subcooling Actual', field => 'subcooling_actual', unit => '°F' },
+            # Superheat/subcooling are ΔT values; use a plain 'F' unit and no
+            # device_class so the exporter serializes them (see subcooling above).
+            { key => 'superheat_target', name => 'Superheat Target', field => 'superheat_target', unit => 'F' },
+            { key => 'superheat_actual', name => 'Superheat Actual', field => 'superheat_actual', unit => 'F' },
+            { key => 'subcooling_target', name => 'Subcooling Target', field => 'subcooling_target', unit => 'F' },
+            { key => 'subcooling_actual', name => 'Subcooling Actual', field => 'subcooling_actual', unit => 'F' },
         ],
     },
     IndoorUnit => {

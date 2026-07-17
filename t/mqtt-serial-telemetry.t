@@ -202,6 +202,15 @@ subtest 'outdoor temperatures preserve bus resolution and exclude ambiguous fiel
     is($config->{state_class}, 'measurement', 'live value is a measurement');
     is($config->{unit_of_measurement}, '°F', 'temperature unit');
 
+    # Subcooling is a ΔT: it must NOT carry a temperature device_class, and it
+    # uses a plain-ASCII unit so the downstream Prometheus exporter serializes
+    # it (the '°F' + no-device_class combination is silently dropped).
+    my $subcool = decode_json($client->message_for(
+        'homeassistant/sensor/infinitude_serial_outdoor_unit_2_subcooling/config'
+    ));
+    ok(!defined $subcool->{device_class}, 'subcooling has no device_class (delta, not absolute temp)');
+    is($subcool->{unit_of_measurement}, 'F', 'subcooling uses a plain-ASCII unit');
+
     my $published = scalar @{$client->messages};
     $mqtt->publish_serial_telemetry(frame(register => '0302', payload => $payload));
     is(scalar @{$client->messages}, $published, 'identical values are suppressed');
