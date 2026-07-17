@@ -1,0 +1,27 @@
+.git
+.github
+
+# Local configuration and credentials must never be baked into an image.
+.env
+.env.*
+!.env.example
+infinitude.json
+carriercookies.txt
+infinity_status.txt
+*.key
+
+# Runtime data is supplied by a volume on the deployed host.
+state/*
+!state/.gitignore
+!state/sam-emulator/
+state/sam-emulator/*
+!state/sam-emulator/.gitkeep
+tmp/
+
+# Development and deployment-only files.
+docker-compose*.yaml
+AGENTS.md
+CLAUDE.md
+.DS_Store
+*.swp
+*.swo
