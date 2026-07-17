@@ -50,9 +50,19 @@ System-level sensors (outdoor temperature, filter levels, humidifier state) are 
 When serial monitoring is configured, `MQTT_SERIAL_TELEMETRY=1` adds a separate
 `Carrier Infinity RS485` device containing decoded low-level telemetry. Available
 entities depend on the equipment and bus traffic, and can include blower and
-compressor RPM, airflow CFM, compressor frequency and stage, refrigerant
+compressor RPM, requested and minimum airflow CFM, compressor frequency and
+commanded/actual stage, refrigerant
 temperatures, suction pressure, line voltage, zone damper state, and lifetime
 cycle/runtime counters. Telemetry is read-only and does not add bus polling.
+
+For offline protocol audits, capture the live serial websocket as JSON Lines:
+
+```bash
+websocat ws://infinitude-host:3000/serial > state/serial-capture.jsonl
+```
+
+Record the equipment state and wall-control readings with timestamps. Captures
+may contain equipment identifiers, so review them before sharing publicly.
 
 <img src="http://i.imgur.com/5Ge1zEM.png" />
 

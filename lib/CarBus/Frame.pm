@@ -58,14 +58,16 @@ my $fp = Struct("CarFrame",
   Value("payload", sub {
       return undef unless $_->ctx->{valid};
       return undef if length($_->ctx->{payload_raw})<=3;
-      my $sp = subparser($_->ctx->{reg_string}, $_->ctx->{src});
+      my $device = $_->ctx->{cmd} eq 'write' ? $_->ctx->{dst} : $_->ctx->{src};
+      my $sp = subparser($_->ctx->{reg_string}, $device);
       try { $sp->parse(substr($_->ctx->{payload_raw},3)) } || undef;
   }),
   Value("payload_hex", sub { unpack("H*", $_->ctx->{payload_raw}) }),
 
   Value("reg_name", sub {
     my $fh = $_->ctx;
-    my $subp = subparser($fh->{reg_string}, $fh->{src});
+    my $device = $fh->{cmd} eq 'write' ? $fh->{dst} : $fh->{src};
+    my $subp = subparser($fh->{reg_string}, $device);
     my $regname = $fh->{reg_string} // '';
     $regname = $subp->{Name}."($regname)" if $subp;
     return $regname;

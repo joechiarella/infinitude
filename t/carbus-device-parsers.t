@@ -188,6 +188,20 @@ subtest 'OutdoorUnit 0605 commanded stage' => sub {
     $data = pack("N", 0x00000000);
     $r = $p->parse($data);
     ok(abs($r->{commanded_stage} - 0.0) < 0.001, 'commanded stage 0.0 (off)');
+
+    my $frame = CarBus::Frame->new(
+        src_bus     => 1,
+        src         => 'Thermostat',
+        dst_bus     => 1,
+        dst         => 'OutdoorUnit2',
+        pid         => 0,
+        ext         => 0,
+        cmd         => 'write',
+        payload_raw => pack('H*', '00060540800000010000'),
+    );
+    my $parsed = CarBus::Frame->new($frame->frame_hex)->frame_hash;
+    is($parsed->{reg_name}, 'odu_commanded_stage(0605)', 'write uses destination device parser');
+    is($parsed->{payload}{commanded_stage}, 4, 'write frame decodes commanded stage');
 };
 
 # ============================================================================
@@ -296,12 +310,13 @@ subtest 'IndoorUnit 0306 blower status' => sub {
     ok($p, 'parser found for IndoorUnit/0306');
     is($p->{Name}, 'idu_status', 'parser name');
 
-    # 10 bytes: status + RPM (uint16 BE) + 7 data bytes
-    my $data = pack("C*", 0x01, 0x0E, 0x10, 0, 0, 0, 0, 0, 0, 0);
+    # Airflow verification sample: 1247 RPM and 1400 requested CFM.
+    my $data = pack("C*", 0x01, 0x04, 0xDF, 0x05, 0x78, 0, 0, 8, 62, 8);
     my $r = $p->parse($data);
     is($r->{status_flags}, 1, 'status flags');
-    is($r->{blower_rpm}, 3600, 'blower RPM decoded from uint16 BE');
-    is(scalar @{$r->{data}}, 7, '7 trailing data bytes');
+    is($r->{blower_rpm}, 1247, 'blower RPM decoded from uint16 BE');
+    is($r->{airflow_cfm}, 1400, 'requested airflow decoded from uint16 BE');
+    is(scalar @{$r->{data}}, 5, '5 trailing data bytes');
 };
 
 # ============================================================================
@@ -313,12 +328,13 @@ subtest 'IndoorUnit 0316 airflow config' => sub {
     ok($p, 'parser found for IndoorUnit/0316');
     is($p->{Name}, 'idu_config', 'parser name');
 
-    # flags=0x03 (electric heat), airflow=1200 CFM, elec_heat=800 CFM, 4 trailing bytes
-    my $data = pack("C*", 0x03, 0, 0, 0, 0x04, 0xB0, 0x03, 0x20, 0, 0, 0, 0, 0, 0);
+    # Airflow verification sample with electric heat active in the flags.
+    my $data = pack("C*", 0x03, 0, 0, 0, 0x05, 0x78, 0x00, 0xB1, 0x29, 0x78, 1, 0, 2, 0xCB);
     my $r = $p->parse($data);
-    is($r->{electric_heat}, 1,    'electric heat detected');
-    is($r->{airflow_cfm},   1200, 'airflow CFM');
-    is($r->{elec_heat_cfm}, 800,  'electric heat CFM');
+    is($r->{electric_heat}, 1,    'electric heat active');
+    is($r->{airflow_cfm},   1400, 'requested airflow CFM');
+    is($r->{unknown4},       177, 'unidentified load-related word preserved without a false label');
+    is(scalar @{$r->{data}}, 6,   '6 trailing data bytes');
 };
 
 subtest 'IndoorUnit 0316 no electric heat' => sub {
@@ -326,8 +342,17 @@ subtest 'IndoorUnit 0316 no electric heat' => sub {
 
     my $data = pack("C*", 0x00, 0, 0, 0, 0x03, 0x84, 0, 0, 0, 0, 0, 0, 0, 0);
     my $r = $p->parse($data);
-    is($r->{electric_heat}, 0,   'no electric heat');
-    is($r->{airflow_cfm},   900, 'airflow CFM');
+    is($r->{electric_heat}, 0,   'electric heat inactive');
+    is($r->{airflow_cfm},   900, 'requested airflow CFM');
+};
+
+subtest 'IndoorUnit 031E calculated minimum airflow' => sub {
+    my $p = CarBus::Frame::subparser('031E', 'IndoorUnit');
+    ok($p, 'parser found for IndoorUnit/031E');
+    is($p->{Name}, 'idu_minimum_airflow', 'parser name');
+
+    my $r = $p->parse(pack('n', 300));
+    is($r->{minimum_airflow_cfm}, 300, 'minimum airflow matches verification screen');
 };
 
 # ============================================================================

@@ -42,11 +42,15 @@ my %SERIAL_REGISTERS = (
     IndoorUnit => {
         '0306' => [
             { key => 'blower_rpm', name => 'Blower RPM', field => 'blower_rpm', unit => 'rpm' },
+            { key => 'blower_running', name => 'Blower Running', field => 'blower_rpm', component => 'binary_sensor', boolean => 1, device_class => 'running' },
+            { key => 'airflow_cfm', name => 'Requested Airflow', field => 'airflow_cfm', unit => 'CFM' },
         ],
         '0316' => [
-            { key => 'airflow_cfm', name => 'Airflow', field => 'airflow_cfm', unit => 'CFM' },
-            { key => 'electric_heat_airflow_cfm', name => 'Electric Heat Airflow', field => 'elec_heat_cfm', unit => 'CFM' },
-            { key => 'electric_heat_present', name => 'Electric Heat Present', field => 'electric_heat', component => 'binary_sensor', boolean => 1 },
+            { key => 'airflow_cfm', name => 'Requested Airflow', field => 'airflow_cfm', unit => 'CFM' },
+            { key => 'electric_heat_present', name => 'Electric Heat Active', field => 'electric_heat', component => 'binary_sensor', boolean => 1 },
+        ],
+        '031E' => [
+            { key => 'minimum_airflow_cfm', name => 'Calculated Minimum Airflow', field => 'minimum_airflow_cfm', unit => 'CFM' },
         ],
     },
     ZoneControl => {
@@ -60,6 +64,14 @@ my %SERIAL_REGISTERS = (
             { key => 'zone_2_damper', name => 'Zone 2 Damper', field => 'zone2', device_class => 'enum', options => [qw(closed transitioning open)], values => { 0 => 'closed', 10 => 'transitioning', 15 => 'open' } },
             { key => 'zone_3_damper', name => 'Zone 3 Damper', field => 'zone3', device_class => 'enum', options => [qw(closed transitioning open)], values => { 0 => 'closed', 10 => 'transitioning', 15 => 'open' } },
             { key => 'zone_4_damper', name => 'Zone 4 Damper', field => 'zone4', device_class => 'enum', options => [qw(closed transitioning open)], values => { 0 => 'closed', 10 => 'transitioning', 15 => 'open' } },
+        ],
+    },
+);
+
+my %SERIAL_WRITES = (
+    OutdoorUnit => {
+        '0605' => [
+            { key => 'compressor_commanded_stage', name => 'Compressor Commanded Stage', field => 'commanded_stage' },
         ],
     },
 );
@@ -472,18 +484,30 @@ sub publish_if_status_changed {
 sub publish_serial_telemetry {
     my ($self, $frame) = @_;
     return unless $self->{enabled} && $self->{serial_telemetry};
-    return unless ref($frame) eq 'HASH' && ($frame->{cmd} // '') eq 'reply';
+    return unless ref($frame) eq 'HASH';
     return if exists($frame->{valid}) && !$frame->{valid};
     return unless ref($frame->{payload}) eq 'HASH';
 
-    my $source = $frame->{src} // '';
+    my $command = $frame->{cmd} // '';
+    return unless $command eq 'reply' || $command eq 'write';
+
+    my $source = $command eq 'write' ? ($frame->{dst} // '') : ($frame->{src} // '');
     my ($class) = $source =~ /^(OutdoorUnit|IndoorUnit|ZoneControl)\d*$/;
     return unless $class;
 
     my $register = uc($frame->{reg_string} // '');
     my $payload  = $frame->{payload};
+    my $metrics  = $command eq 'write'
+        ? $SERIAL_WRITES{$class}{$register}
+        : $SERIAL_REGISTERS{$class}{$register};
 
-    for my $metric (@{$SERIAL_REGISTERS{$class}{$register} || []}) {
+    return unless $metrics || ($command eq 'reply' && ($register eq '0310' || $register eq '0311'));
+
+    if ($command eq 'reply' && $class eq 'IndoorUnit' && $register eq '0316') {
+        $self->_clear_serial_metric($source, 'sensor', 'electric_heat_airflow_cfm');
+    }
+
+    for my $metric (@{$metrics || []}) {
         next unless _serial_condition_matches($payload, $metric->{when});
         my $value = _serial_path_value($payload, $metric->{path} || [$metric->{field}]);
         next unless defined $value && !ref($value);
@@ -494,7 +518,7 @@ sub publish_serial_telemetry {
         $self->_publish_serial_metric($source, $metric, $value);
     }
 
-    if (($register eq '0310' || $register eq '0311') && ref($payload->{entry}) eq 'ARRAY') {
+    if ($command eq 'reply' && ($register eq '0310' || $register eq '0311') && ref($payload->{entry}) eq 'ARRAY') {
         for my $entry (@{$payload->{entry}}) {
             my $key = $entry->{name} // '';
             next unless $SERIAL_COUNTERS{$class}{$key};
@@ -509,6 +533,29 @@ sub publish_serial_telemetry {
             };
             $self->_publish_serial_metric($source, $metric, $entry->{value});
         }
+    }
+}
+
+sub _clear_serial_metric {
+    my ($self, $source, $component, $key) = @_;
+    my $source_id = _serial_source_id($source);
+    my $metric_id = "${source_id}_$key";
+    return if $self->{_serial_cleared}{$metric_id}++;
+
+    delete $self->{_serial_discovery}{$metric_id};
+
+    $self->{mqtt}->retain(
+        $self->_disc($component, "infinitude_serial_$metric_id", 'config') => ''
+    );
+    $self->{mqtt}->retain($self->_topic('serial', $source_id, $key) => '');
+}
+
+sub refresh_serial_discovery {
+    my ($self) = @_;
+    return unless $self->{enabled} && $self->{serial_telemetry};
+
+    for my $metric_id (sort keys %{$self->{_serial_discovery} || {}}) {
+        $self->{mqtt}->retain(@{$self->{_serial_discovery}{$metric_id}});
     }
 }
 
@@ -578,8 +625,10 @@ sub _publish_serial_metric {
             $config->{payload_off} = 'OFF';
         }
 
-        my $discovery_topic = $self->_disc($component, "infinitude_serial_$metric_id", 'config');
-        $self->{mqtt}->retain($discovery_topic => _json($config));
+        my $discovery_topic   = $self->_disc($component, "infinitude_serial_$metric_id", 'config');
+        my $discovery_payload = _json($config);
+        $self->{mqtt}->retain($discovery_topic => $discovery_payload);
+        $self->{_serial_discovery}{$metric_id} = [$discovery_topic, $discovery_payload];
         $self->{_serial_discovered}{$metric_id} = 1;
     }
 

@@ -101,22 +101,24 @@ CarBus::Frame->add_device_parser('IndoorUnit', '0311', $GreedyIDUKV->('idu_runti
 #
 #   data[0]       = status flags
 #   data[1..2]    = blower RPM (uint16 BE)
-#   data[3..9]    = undocumented (operating mode, stage, etc.)
+#   data[3..4]    = requested airflow CFM (uint16 BE)
+#   data[5..9]    = undocumented (operating mode, stage, etc.)
 #
-# Cross-referenced with InfinitESP REG_IDU_STATUS decoding.
+# Airflow and RPM were confirmed against an Infinity airflow verification test.
 CarBus::Frame->add_device_parser('IndoorUnit', '0306',
     Struct('idu_status',
         Byte('status_flags'),
         UBInt16('blower_rpm'),
-        Array(7, Byte('data')),
+        UBInt16('airflow_cfm'),
+        Array(5, Byte('data')),
     )
 );
 
 # Register 0316 — Airflow configuration (14 bytes)
 #
-#   data[0] & 0x03 = electric heat present (boolean)
-#   data[4..5]     = airflow CFM (uint16 BE)
-#   data[6..7]     = electric heat CFM (uint16 BE)
+#   data[0] & 0x03 = electric heat active (boolean)
+#   data[4..5]     = requested airflow CFM (uint16 BE)
+#   data[6..7]     = unknown value that varies with blower load
 #   Other fields TBD.
 #
 # Cross-referenced with InfinitESP REG_IDU_CONFIG decoding.
@@ -128,8 +130,17 @@ CarBus::Frame->add_device_parser('IndoorUnit', '0316',
         Byte('unknown2'),
         Byte('unknown3'),
         UBInt16('airflow_cfm'),
-        UBInt16('elec_heat_cfm'),
-        Array(4, Byte('data')),
+        UBInt16('unknown4'),
+        Array(6, Byte('data')),
+    )
+);
+
+# Register 031E — Calculated minimum airflow (2 bytes)
+#
+# Confirmed against the Infinity airflow verification result screen.
+CarBus::Frame->add_device_parser('IndoorUnit', '031E',
+    Struct('idu_minimum_airflow',
+        UBInt16('minimum_airflow_cfm'),
     )
 );
 

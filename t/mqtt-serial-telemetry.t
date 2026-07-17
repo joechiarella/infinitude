@@ -48,6 +48,7 @@ sub frame {
     return {
         cmd        => $args{cmd} // 'reply',
         src        => $args{src} // 'OutdoorUnit2',
+        dst        => $args{dst} // 'Thermostat',
         reg_string => $args{register},
         payload    => $args{payload},
     };
@@ -85,6 +86,24 @@ subtest 'availability heartbeat always republishes retained online state' => sub
     );
 };
 
+subtest 'serial discovery can be refreshed after broker state is lost' => sub {
+    my ($mqtt, $client) = make_mqtt();
+    my $topic = 'homeassistant/sensor/infinitude_serial_indoor_unit_blower_rpm/config';
+
+    $mqtt->publish_serial_telemetry(frame(
+        src      => 'IndoorUnit',
+        register => '0306',
+        payload  => { blower_rpm => 566, airflow_cfm => 504 },
+    ));
+    my @before = grep { $_->[0] eq $topic } @{$client->messages};
+    is(scalar @before, 1, 'discovery initially published once');
+
+    $mqtt->refresh_serial_discovery;
+    my @after = grep { $_->[0] eq $topic } @{$client->messages};
+    is(scalar @after, 2, 'cached discovery is republished');
+    is($after[1][1], $after[0][1], 'refresh preserves the original discovery payload');
+};
+
 subtest 'remaining confirmed outdoor and indoor metrics are mapped' => sub {
     my ($mqtt, $client) = make_mqtt();
 
@@ -114,7 +133,14 @@ subtest 'remaining confirmed outdoor and indoor metrics are mapped' => sub {
     $mqtt->publish_serial_telemetry(frame(
         src      => 'IndoorUnit',
         register => '0306',
-        payload  => { blower_rpm => 566 },
+        payload  => { blower_rpm => 566, airflow_cfm => 504 },
+    ));
+    $mqtt->publish_serial_telemetry(frame(
+        cmd      => 'write',
+        src      => 'Thermostat',
+        dst      => 'OutdoorUnit2',
+        register => '0605',
+        payload  => { commanded_stage => 4 },
     ));
 
     is($client->message_for('infinitude/serial/outdoor_unit_2/line_voltage'), '243', 'line voltage published');
@@ -128,6 +154,21 @@ subtest 'remaining confirmed outdoor and indoor metrics are mapped' => sub {
     ok(!defined $client->message_for('infinitude/serial/outdoor_unit_2/discharge_delta'), 'ambiguous discharge delta excluded');
     ok(!defined $client->message_for('infinitude/serial/outdoor_unit_2/unknown_constant'), 'unknown float excluded');
     is($client->message_for('infinitude/serial/indoor_unit/blower_rpm'), '566', 'blower RPM published');
+    is($client->message_for('infinitude/serial/indoor_unit/blower_running'), 'ON', 'blower running state derived from RPM');
+    is($client->message_for('infinitude/serial/indoor_unit/airflow_cfm'), '504', 'requested airflow published from status register');
+    is($client->message_for('infinitude/serial/outdoor_unit_2/compressor_commanded_stage'), '4', 'commanded stage published from write frame');
+
+    my $airflow = decode_json($client->message_for(
+        'homeassistant/sensor/infinitude_serial_indoor_unit_airflow_cfm/config'
+    ));
+    is($airflow->{name}, 'Indoor Unit Requested Airflow', 'airflow discovery describes requested value');
+
+    $mqtt->publish_serial_telemetry(frame(
+        src      => 'IndoorUnit',
+        register => '0306',
+        payload  => { blower_rpm => 0, airflow_cfm => 0 },
+    ));
+    is($client->message_for('infinitude/serial/indoor_unit/blower_running'), 'OFF', 'zero RPM marks blower stopped');
 };
 
 subtest 'outdoor temperatures preserve bus resolution and exclude ambiguous fields' => sub {
@@ -235,10 +276,28 @@ subtest 'indoor and zone-controller metrics publish conditionally' => sub {
     $mqtt->publish_serial_telemetry(frame(
         src      => 'IndoorUnit',
         register => '0316',
-        payload  => { airflow_cfm => 940, elec_heat_cfm => 1200, electric_heat => 1 },
+        payload  => { airflow_cfm => 940, unknown4 => 177, electric_heat => 1 },
     ));
-    is($client->message_for('infinitude/serial/indoor_unit/airflow_cfm'), '940', 'indoor airflow published');
-    is($client->message_for('infinitude/serial/indoor_unit/electric_heat_present'), 'ON', 'electric heat presence published');
+    is($client->message_for('infinitude/serial/indoor_unit/airflow_cfm'), '940', 'requested indoor airflow published');
+    is($client->message_for('infinitude/serial/indoor_unit/electric_heat_present'), 'ON', 'electric heat active state published');
+    is($client->message_for(
+        'homeassistant/sensor/infinitude_serial_indoor_unit_electric_heat_airflow_cfm/config'
+    ), '', 'obsolete electric heat airflow discovery removed');
+    is($client->message_for(
+        'infinitude/serial/indoor_unit/electric_heat_airflow_cfm'
+    ), '', 'obsolete electric heat airflow state removed');
+
+    my $electric_heat = decode_json($client->message_for(
+        'homeassistant/binary_sensor/infinitude_serial_indoor_unit_electric_heat_present/config'
+    ));
+    is($electric_heat->{name}, 'Indoor Unit Electric Heat Active', 'electric heat discovery describes current activity');
+
+    $mqtt->publish_serial_telemetry(frame(
+        src      => 'IndoorUnit',
+        register => '031E',
+        payload  => { minimum_airflow_cfm => 300 },
+    ));
+    is($client->message_for('infinitude/serial/indoor_unit/minimum_airflow_cfm'), '300', 'calculated minimum airflow published');
 
     $mqtt->publish_serial_telemetry(frame(
         src      => 'ZoneControl',
@@ -268,6 +327,7 @@ subtest 'unsupported traffic is ignored' => sub {
     my ($mqtt, $client) = make_mqtt();
     $mqtt->publish_serial_telemetry(frame(cmd => 'read', register => '0303', payload => { suction_pressure_psi => 100 }));
     $mqtt->publish_serial_telemetry(frame(src => 'Thermostat', register => '0303', payload => { suction_pressure_psi => 100 }));
+    $mqtt->publish_serial_telemetry(frame(cmd => 'write', src => 'Thermostat', dst => 'OutdoorUnit2', register => '0303', payload => { suction_pressure_psi => 100 }));
     $mqtt->publish_serial_telemetry(frame(register => '9999', payload => { value => 100 }));
     my $invalid = frame(register => '0303', payload => { suction_pressure_psi => 100 });
     $invalid->{valid} = 0;

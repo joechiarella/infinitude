@@ -270,6 +270,10 @@ if ($mqtt->enabled) {
         $mqtt->publish_availability;
     });
 
+    Mojo::IOLoop->recurring(300 => sub {
+        $mqtt->refresh_serial_discovery;
+    });
+
     Mojo::IOLoop->recurring(1 => sub {
         $mqtt->tick;
     });
