@@ -47,6 +47,13 @@ Each enabled zone appears as a climate entity with:
 
 System-level sensors (outdoor temperature, filter levels, humidifier state) are also published.
 
+When serial monitoring is configured, `MQTT_SERIAL_TELEMETRY=1` adds a separate
+`Carrier Infinity RS485` device containing decoded low-level telemetry. Available
+entities depend on the equipment and bus traffic, and can include blower and
+compressor RPM, airflow CFM, compressor frequency and stage, refrigerant
+temperatures, suction pressure, line voltage, zone damper state, and lifetime
+cycle/runtime counters. Telemetry is read-only and does not add bus polling.
+
 <img src="http://i.imgur.com/5Ge1zEM.png" />
 
 RS485 stream monitoring example video:
@@ -94,6 +101,7 @@ Infinitude configuration parameters can be passed through environment variables 
 | MQTT_PASS | Optional MQTT broker password |
 | MQTT_PREFIX | HA discovery prefix (default: `homeassistant`) |
 | MQTT_TOPIC | MQTT base topic (default: `infinitude`) |
+| MQTT_SERIAL_TELEMETRY | Publish decoded RS485 telemetry through MQTT Discovery (1 = enabled) |
 
 
 the published container can be run as

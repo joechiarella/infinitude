@@ -6,6 +6,70 @@ use feature ':5.10';
 use utf8;
 use Mojo::JSON qw/encode_json decode_json/;
 
+my %SERIAL_REGISTERS = (
+    OutdoorUnit => {
+        '0302' => [
+            { key => 'outdoor_temperature', name => 'Outdoor Temperature', field => 'outdoor_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
+            { key => 'coil_temperature', name => 'Coil Temperature', field => 'coil_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
+            { key => 'suction_temperature', name => 'Suction Temperature', field => 'suction_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
+            { key => 'subcooling', name => 'Subcooling', field => 'subcooling_degf_int', scale => 1 / 16, unit => '°F' },
+            { key => 'discharge_temperature', name => 'Discharge Temperature', field => 'discharge_temp', scale => 1 / 16, unit => '°F', device_class => 'temperature' },
+        ],
+        '0303' => [
+            { key => 'suction_pressure', name => 'Suction Pressure', field => 'suction_pressure_psi', unit => 'psi', device_class => 'pressure' },
+        ],
+        '0304' => [
+            { key => 'line_voltage', name => 'Line Voltage', field => 'line_voltage', unit => 'V', device_class => 'voltage' },
+        ],
+        '0604' => [
+            { key => 'compressor_target_rpm', name => 'Compressor Target RPM', field => 'target_rpm', unit => 'rpm' },
+            { key => 'compressor_rpm', name => 'Compressor RPM', field => 'current_rpm', unit => 'rpm' },
+        ],
+        '0608' => [
+            { key => 'compressor_frequency', name => 'Compressor Frequency', field => 'compressor_frequency_hz', unit => 'Hz', device_class => 'frequency' },
+            { key => 'compressor_running', name => 'Compressor Running', field => 'saturation', component => 'binary_sensor', boolean => 1, device_class => 'running' },
+        ],
+        '060E' => [
+            { key => 'compressor_stage', name => 'Compressor Stage', field => 'stage' },
+        ],
+        '061F' => [
+            { key => 'superheat_target', name => 'Superheat Target', field => 'superheat_target', unit => '°F' },
+            { key => 'superheat_actual', name => 'Superheat Actual', field => 'superheat_actual', unit => '°F' },
+            { key => 'subcooling_target', name => 'Subcooling Target', field => 'subcooling_target', unit => '°F' },
+            { key => 'subcooling_actual', name => 'Subcooling Actual', field => 'subcooling_actual', unit => '°F' },
+        ],
+    },
+    IndoorUnit => {
+        '0306' => [
+            { key => 'blower_rpm', name => 'Blower RPM', field => 'blower_rpm', unit => 'rpm' },
+        ],
+        '0316' => [
+            { key => 'airflow_cfm', name => 'Airflow', field => 'airflow_cfm', unit => 'CFM' },
+            { key => 'electric_heat_airflow_cfm', name => 'Electric Heat Airflow', field => 'elec_heat_cfm', unit => 'CFM' },
+            { key => 'electric_heat_present', name => 'Electric Heat Present', field => 'electric_heat', component => 'binary_sensor', boolean => 1 },
+        ],
+    },
+    ZoneControl => {
+        '0302' => [
+            { key => 'zone_2_temperature', name => 'Zone 2 Temperature', path => ['zone2', 'value'], scale => 1 / 16, unit => '°F', device_class => 'temperature', when => ['zone2', 'tag', 1] },
+            { key => 'zone_3_temperature', name => 'Zone 3 Temperature', path => ['zone3', 'value'], scale => 1 / 16, unit => '°F', device_class => 'temperature', when => ['zone3', 'tag', 1] },
+            { key => 'zone_4_temperature', name => 'Zone 4 Temperature', path => ['zone4', 'value'], scale => 1 / 16, unit => '°F', device_class => 'temperature', when => ['zone4', 'tag', 1] },
+        ],
+        '0319' => [
+            { key => 'zone_1_damper', name => 'Zone 1 Damper', field => 'zone1', device_class => 'enum', options => [qw(closed transitioning open)], values => { 0 => 'closed', 10 => 'transitioning', 15 => 'open' } },
+            { key => 'zone_2_damper', name => 'Zone 2 Damper', field => 'zone2', device_class => 'enum', options => [qw(closed transitioning open)], values => { 0 => 'closed', 10 => 'transitioning', 15 => 'open' } },
+            { key => 'zone_3_damper', name => 'Zone 3 Damper', field => 'zone3', device_class => 'enum', options => [qw(closed transitioning open)], values => { 0 => 'closed', 10 => 'transitioning', 15 => 'open' } },
+            { key => 'zone_4_damper', name => 'Zone 4 Damper', field => 'zone4', device_class => 'enum', options => [qw(closed transitioning open)], values => { 0 => 'closed', 10 => 'transitioning', 15 => 'open' } },
+        ],
+    },
+);
+
+my %SERIAL_COUNTERS = (
+    OutdoorUnit => { map { $_ => 1 } qw(heat_cycles cool_cycles defrost_cycles poweron_cycles heat_hours cool_hours defrost_hours poweron_hours) },
+    IndoorUnit => { map { $_ => 1 } qw(low_heat_cycles med_heat_cycles high_heat_cycles poweron_cycles blower_cycles low_heat_hours med_heat_hours high_heat_hours poweron_hours blower_hours) },
+    ZoneControl => { map { $_ => 1 } qw(poweron_cycles poweron_hours) },
+);
+
 sub new {
     my ($class, %args) = @_;
 
@@ -31,19 +95,21 @@ sub new {
     $mqtt->last_will("$base/status" => 'offline', 1);
 
     my $self = bless {
-        enabled => 1,
-        mqtt    => $mqtt,
-        store   => $store,
-        prefix  => $prefix,
-        base    => $base,
-        config  => $config,
-        zc      => $args{zc},  # CarBus::ZoneController (optional)
+        enabled             => 1,
+        serial_telemetry    => _bool($config->{mqtt_serial_telemetry}, 0),
+        mqtt                => $mqtt,
+        store               => $store,
+        prefix              => $prefix,
+        base                => $base,
+        config              => $config,
+        zc                  => $args{zc},  # CarBus::ZoneController (optional)
     }, $class;
 
     return $self;
 }
 
 sub enabled { shift->{enabled} }
+sub serial_telemetry_enabled { shift->{serial_telemetry} // 0 }
 
 sub _topic { my $s = shift; join '/', $s->{base}, @_ }
 sub _disc  { my $s = shift; join '/', $s->{prefix}, @_ }
@@ -59,6 +125,13 @@ sub _v {
 
 # JSON encode for MQTT
 sub _json { encode_json(shift) }
+
+sub _bool {
+    my ($value, $default) = @_;
+    return $default unless defined $value;
+    return 0 if $value =~ /^(?:0|false|off|no)$/i;
+    return $value ? 1 : 0;
+}
 
 sub publish_discovery {
     my ($self) = @_;
@@ -165,6 +238,12 @@ sub publish_discovery {
         $self->{mqtt}->retain($topic => $msg);
     }
 
+    $self->publish_availability;
+}
+
+sub publish_availability {
+    my ($self) = @_;
+    return unless $self->{enabled};
     $self->{mqtt}->retain($self->_topic('status') => 'online');
 }
 
@@ -388,6 +467,131 @@ sub publish_if_status_changed {
         $self->{_last_status} = \%cur;
         $self->publish_state;
     }
+}
+
+sub publish_serial_telemetry {
+    my ($self, $frame) = @_;
+    return unless $self->{enabled} && $self->{serial_telemetry};
+    return unless ref($frame) eq 'HASH' && ($frame->{cmd} // '') eq 'reply';
+    return if exists($frame->{valid}) && !$frame->{valid};
+    return unless ref($frame->{payload}) eq 'HASH';
+
+    my $source = $frame->{src} // '';
+    my ($class) = $source =~ /^(OutdoorUnit|IndoorUnit|ZoneControl)\d*$/;
+    return unless $class;
+
+    my $register = uc($frame->{reg_string} // '');
+    my $payload  = $frame->{payload};
+
+    for my $metric (@{$SERIAL_REGISTERS{$class}{$register} || []}) {
+        next unless _serial_condition_matches($payload, $metric->{when});
+        my $value = _serial_path_value($payload, $metric->{path} || [$metric->{field}]);
+        next unless defined $value && !ref($value);
+        $value *= $metric->{scale} if $metric->{scale};
+        $value = $metric->{values}{$value} if $metric->{values};
+        next unless defined $value;
+        $value = $value ? 'ON' : 'OFF' if $metric->{boolean};
+        $self->_publish_serial_metric($source, $metric, $value);
+    }
+
+    if (($register eq '0310' || $register eq '0311') && ref($payload->{entry}) eq 'ARRAY') {
+        for my $entry (@{$payload->{entry}}) {
+            my $key = $entry->{name} // '';
+            next unless $SERIAL_COUNTERS{$class}{$key};
+            next unless defined $entry->{value};
+            my $name = join ' ', map { ucfirst $_ } split /_/, $key;
+            my $metric = {
+                key         => $key,
+                name        => $name,
+                unit        => $key =~ /_hours$/ ? 'h' : 'cycles',
+                device_class => $key =~ /_hours$/ ? 'duration' : undef,
+                state_class => 'total_increasing',
+            };
+            $self->_publish_serial_metric($source, $metric, $entry->{value});
+        }
+    }
+}
+
+sub _serial_condition_matches {
+    my ($payload, $condition) = @_;
+    return 1 unless $condition;
+    my @path = @$condition;
+    my $expected = pop @path;
+    my $actual = _serial_path_value($payload, \@path);
+    return defined($actual) && $actual eq $expected;
+}
+
+sub _serial_path_value {
+    my ($payload, $path) = @_;
+    my $value = $payload;
+    for my $key (@$path) {
+        return unless ref($value) eq 'HASH' && exists $value->{$key};
+        $value = $value->{$key};
+    }
+    return $value;
+}
+
+sub _serial_source_id {
+    my $source = shift;
+    $source =~ s/([a-z])([A-Z])/$1_$2/g;
+    $source =~ s/([A-Za-z])(\d+)$/$1_$2/;
+    return lc $source;
+}
+
+sub _serial_source_name {
+    my $source = shift;
+    $source =~ s/([a-z])([A-Z])/$1 $2/g;
+    $source =~ s/([A-Za-z])(\d+)$/$1 $2/;
+    return $source;
+}
+
+sub _publish_serial_metric {
+    my ($self, $source, $metric, $value) = @_;
+    my $source_id   = _serial_source_id($source);
+    my $source_name = _serial_source_name($source);
+    my $metric_id   = "${source_id}_$metric->{key}";
+    my $component   = $metric->{component} // 'sensor';
+    my $state_topic = $self->_topic('serial', $source_id, $metric->{key});
+
+    if (!$self->{_serial_discovered}{$metric_id}) {
+        my $config = {
+            unique_id             => "infinitude_serial_$metric_id",
+            name                  => "$source_name $metric->{name}",
+            device                => {
+                identifiers  => ['infinitude_serial_telemetry'],
+                name         => 'Carrier Infinity RS485',
+                manufacturer => 'Carrier',
+                model        => 'Infinity RS485',
+            },
+            state_topic           => $state_topic,
+            availability_topic    => $self->_topic('status'),
+            payload_available     => 'online',
+            payload_not_available => 'offline',
+        };
+        $config->{unit_of_measurement} = $metric->{unit} if defined $metric->{unit};
+        $config->{device_class} = $metric->{device_class} if defined $metric->{device_class};
+        $config->{state_class} = $metric->{state_class} // 'measurement'
+            if $component eq 'sensor' && !$metric->{options};
+        $config->{options} = $metric->{options} if $metric->{options};
+        if ($component eq 'binary_sensor') {
+            $config->{payload_on}  = 'ON';
+            $config->{payload_off} = 'OFF';
+        }
+
+        my $discovery_topic = $self->_disc($component, "infinitude_serial_$metric_id", 'config');
+        $self->{mqtt}->retain($discovery_topic => _json($config));
+        $self->{_serial_discovered}{$metric_id} = 1;
+    }
+
+    if (!$self->{_serial_online}) {
+        $self->publish_availability;
+        $self->{_serial_online} = 1;
+    }
+
+    return if exists $self->{_serial_values}{$metric_id}
+        && $self->{_serial_values}{$metric_id} eq "$value";
+    $self->{mqtt}->retain($state_topic => "$value");
+    $self->{_serial_values}{$metric_id} = "$value";
 }
 
 1;

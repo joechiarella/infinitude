@@ -23,6 +23,7 @@ services:
 #      - MQTT_PASS=
 #      - MQTT_PREFIX=homeassistant
 #      - MQTT_TOPIC=infinitude
+#      - MQTT_SERIAL_TELEMETRY=1
 #    devices:
 #      - /dev/ttyUSB0:/dev/ttyUSB0
     restart: always

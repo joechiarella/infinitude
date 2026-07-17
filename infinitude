@@ -60,12 +60,14 @@ $config->{mqtt_user}     = $ENV{MQTT_USER}     || $config->{mqtt_user};
 $config->{mqtt_pass}     = $ENV{MQTT_PASS}     || $config->{mqtt_pass};
 $config->{mqtt_prefix}   = $ENV{MQTT_PREFIX}   || $config->{mqtt_prefix};
 $config->{mqtt_topic}    = $ENV{MQTT_TOPIC}    || $config->{mqtt_topic};
+$config->{mqtt_serial_telemetry} = $ENV{MQTT_SERIAL_TELEMETRY} // $config->{mqtt_serial_telemetry};
 
 my $handle;
 my $carbus;
 my $sam;
 my $zc;
 my $inf;
+my $mqtt;
 my $init_attempt;
 my @ws_clients;
 my $busloop_id;
@@ -166,6 +168,7 @@ sub bus_loop_start {
                     $fstruc->{field} = { $fstruc->{reg_name}||'unknown' => $payf };
                 }
             }
+            $mqtt->publish_serial_telemetry($fstruc) if $mqtt;
 
             if ($ENV{SCAN_THERMOSTAT}) {
                 if (time>=$scansec+($ENV{SCAN_THERMOSTAT})) {
@@ -191,7 +194,7 @@ sub bus_loop_start {
 serial_init();
 
 # MQTT Discovery integration
-my $mqtt = Infinitude::MQTT->new(store => $store, config => $config, zc => $zc);
+$mqtt = Infinitude::MQTT->new(store => $store, config => $config, zc => $zc);
 $inf = Infinitude->new(store => $store, mqtt => $mqtt, sam => $sam);
 
 # --- MQTT command wiring ---
@@ -261,6 +264,10 @@ if ($mqtt->enabled) {
 
     Mojo::IOLoop->recurring(60 => sub {
         $mqtt->publish_if_status_changed;
+    });
+
+    Mojo::IOLoop->recurring(30 => sub {
+        $mqtt->publish_availability;
     });
 
     Mojo::IOLoop->recurring(1 => sub {
@@ -758,4 +765,3 @@ any '/*catchall' => sub {
 
 app->log->level($ENV{LOGLEVEL}//app->log->level);
 app->start;
-
